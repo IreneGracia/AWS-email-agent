@@ -1,9 +1,27 @@
+# Python
 .venv/
+venv/
 __pycache__/
-*.pyc
-.cdk.staging/
-cdk.out/
+*.py[cod]
 *.egg-info/
-.DS_Store
+.pytest_cache/
+
+# CDK
+cdk.out/
+*.swp
+.cdk.staging/
+
+# Node / frontend
 node_modules/
 frontend/build/
+
+# AWS / local
+.env
+scripts/_payload.json
+scripts/_response.json
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
