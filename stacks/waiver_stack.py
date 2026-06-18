@@ -237,11 +237,6 @@ class WaiverStack(cdk.Stack):
             tracing_enabled=True,
         )
 
-        lambda_role.add_to_policy(iam.PolicyStatement(
-            actions=["states:StartExecution"],
-            resources=[self.state_machine.state_machine_arn],
-        ))
-
         # ------------------------------------------------------------------ #
         # TOOL LAMBDAS — called by Agent 2 (Person 2)
         # ------------------------------------------------------------------ #
