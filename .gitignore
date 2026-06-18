@@ -11,6 +11,10 @@ cdk.out/
 *.swp
 .cdk.staging/
 
+# Node / frontend
+node_modules/
+frontend/build/
+
 # AWS / local
 .env
 scripts/_payload.json
