@@ -253,6 +253,7 @@ class WaiverStack(cdk.Stack):
             function_name="waiver-tools",
             handler="tool_lambda_handler.handler",
             code=lambda_.Code.from_asset("lambdas/waiver_tools"),
+            runtime=lambda_.Runtime.PYTHON_3_12,
             timeout=cdk.Duration.minutes(10),
             memory_size=512,
             role=lambda_role,
@@ -270,6 +271,34 @@ class WaiverStack(cdk.Stack):
             function_name="waiver-approval-handler",
             handler="handler.handler",
             code=lambda_.Code.from_asset("lambdas/approval"),
+            **common_lambda_kwargs,
+        )
+
+        # ------------------------------------------------------------------ #
+        # WAIVER API LAMBDAS — called by agent or frontend
+        # ------------------------------------------------------------------ #
+
+        self.start_waiver_lambda = lambda_.Function(
+            self, "StartWaiverLambda",
+            function_name="waiver-start-workflow",
+            handler="handler.handler",
+            code=lambda_.Code.from_asset("lambdas/waiver_tools/start_workflow"),
+            **common_lambda_kwargs,
+        )
+
+        self.update_waiver_lambda = lambda_.Function(
+            self, "UpdateWaiverLambda",
+            function_name="waiver-update-state",
+            handler="handler.handler",
+            code=lambda_.Code.from_asset("lambdas/waiver_tools/update_state"),
+            **common_lambda_kwargs,
+        )
+
+        self.get_waiver_lambda = lambda_.Function(
+            self, "GetWaiverLambda",
+            function_name="waiver-get-state",
+            handler="handler.handler",
+            code=lambda_.Code.from_asset("lambdas/waiver_tools/get_state"),
             **common_lambda_kwargs,
         )
 
