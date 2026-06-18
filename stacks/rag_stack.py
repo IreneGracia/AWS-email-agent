@@ -87,7 +87,11 @@ class RagStack(cdk.Stack):
         # ------------------------------------------------------------------ #
 
         account_id = boto3.client("sts").get_caller_identity()["Account"]
-        region = boto3.client("sts").meta.region_name or "eu-west-1"
+        # Use the stack's deploy region, NOT boto3's config-default region.
+        # The CfnIndex CreateIndex call is made by the cfn-exec-role in the
+        # DEPLOY region; if this ARN names a different region the data access
+        # policy won't match the caller and AOSS returns AccessDenied.
+        region = self.region
         # CFN execution role is what CfnIndex uses to call the AOSS API
         cfn_exec_role = f"arn:aws:iam::{account_id}:role/cdk-hnb659fds-cfn-exec-role-{account_id}-{region}"
         principals = [
@@ -170,7 +174,7 @@ class RagStack(cdk.Stack):
                         dimension=1024,
                         method=oss.CfnIndex.MethodProperty(
                             name="hnsw",
-                            engine="nmslib",
+                            engine="faiss",
                             space_type="l2",
                             parameters=oss.CfnIndex.ParametersProperty(
                                 ef_construction=512,
@@ -261,7 +265,7 @@ class RagStack(cdk.Stack):
                 "BedrockKB": iam.PolicyDocument(statements=[
                     iam.PolicyStatement(
                         actions=["bedrock:Retrieve"],
-                        resources=[self.knowledge_base.attr_knowledge_base_id],
+                        resources=[self.knowledge_base.attr_knowledge_base_arn],
                     ),
                 ])
             },
