@@ -1,73 +1,67 @@
-"""
-Tool Lambda Handler
-====================
-Single Lambda entry point that wraps the three @tool functions for
-standalone Lambda invocation (as opposed to in-process Strands calls).
-
-Agent 2 (Person 2) can invoke these via Lambda:InvokeFunction, or
-call them in-process by importing tools.py directly.
-
-Routing is by the "tool" key in the event payload.
-
-Event shapes:
-
-  start_waiver_workflow:
-    { "tool": "start_waiver_workflow",
-      "waiver_id": "...", "email_from": "...", "department": "...",
-      "waiver_type": "...", "collected_info": {}, "missing_fields": [] }
-
-  update_waiver_state:
-    { "tool": "update_waiver_state",
-      "waiver_id": "...", "new_info": {}, "missing_fields": [] }
-
-  get_waiver_state:
-    { "tool": "get_waiver_state", "waiver_id": "..." }
-"""
-
-import json
 import logging
+import os
+from datetime import datetime, timezone
 
-from tools import start_waiver_workflow, update_waiver_state, get_waiver_state
+import boto3
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-TOOL_MAP = {
-    "start_waiver_workflow": start_waiver_workflow,
-    "update_waiver_state":   update_waiver_state,
-    "get_waiver_state":      get_waiver_state,
-}
+_region  = os.environ.get("AWS_REGION", "eu-west-1")
+dynamodb = boto3.resource("dynamodb", region_name=_region)
 
 
-def handler(event: dict, context) -> dict:
-    # Unwrap API Gateway proxy if needed
-    if "body" in event:
-        try:
-            event = json.loads(event["body"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            return {"statusCode": 400, "body": json.dumps({"error": "Invalid JSON body"})}
+def _now():
+    return datetime.now(timezone.utc).isoformat()
 
-    tool_name = event.get("tool", "").strip()
-    if not tool_name:
-        return {"statusCode": 400, "body": json.dumps({"error": "'tool' key required"})}
 
-    fn = TOOL_MAP.get(tool_name)
-    if fn is None:
-        return {
-            "statusCode": 400,
-            "body": json.dumps({"error": f"Unknown tool '{tool_name}'",
-                                 "available": list(TOOL_MAP.keys())}),
-        }
+def handler(event, context):
+    waiver_id      = event.get("waiver_id")
+    new_info       = event.get("new_info", {})
+    missing_fields = event.get("missing_fields", [])
 
-    # Build kwargs — exclude the "tool" key
-    kwargs = {k: v for k, v in event.items() if k != "tool"}
+    if not waiver_id:
+        return {"success": False, "error": "waiver_id is required"}
+
+    table = dynamodb.Table(os.environ["WAIVER_TABLE"])
+    now   = _now()
 
     try:
-        result = fn(**kwargs)
-        return {"statusCode": 200, "body": json.dumps({"result": result})}
-    except TypeError as exc:
-        logger.error("Bad arguments for %s: %s", tool_name, exc)
-        return {"statusCode": 400, "body": json.dumps({"error": str(exc)})}
-    except Exception as exc:
-        logger.error("Tool %s raised: %s", tool_name, exc)
-        return {"statusCode": 500, "body": json.dumps({"error": str(exc)})}
+        resp          = table.get_item(Key={"waiver_id": waiver_id})
+        existing_info = resp.get("Item", {}).get("collected_info", {})
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    merged_info = {**existing_info, **new_info}
+    new_status  = "pending_info" if missing_fields else "pending_approval"
+
+    try:
+        table.update_item(
+            Key={"waiver_id": waiver_id},
+            UpdateExpression=(
+                "SET collected_info = :ci, missing_fields = :mf, "
+                "#st = :st, updated_at = :ts, "
+                "history = list_append(if_not_exists(history, :empty), :h)"
+            ),
+            ExpressionAttributeNames={"#st": "status"},
+            ExpressionAttributeValues={
+                ":ci":    merged_info,
+                ":mf":    missing_fields,
+                ":st":    new_status,
+                ":ts":    now,
+                ":h": [{
+                    "timestamp": now,
+                    "event":     "info_updated",
+                    "content": (
+                        f"Updated fields: {list(new_info.keys())}. "
+                        f"Still missing: {missing_fields or 'nothing'}."
+                    ),
+                }],
+                ":empty": [],
+            },
+        )
+        logger.info("Waiver updated | waiver_id=%s | status=%s", waiver_id, new_status)
+        return {"success": True, "waiver_id": waiver_id, "status": new_status}
+    except Exception as e:
+        logger.error("update_item failed: %s", e)
+        return {"success": False, "error": str(e)}

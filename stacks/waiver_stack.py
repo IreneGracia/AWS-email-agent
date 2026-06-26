@@ -278,7 +278,10 @@ class WaiverStack(cdk.Stack):
             function_name="waiver-start-workflow",
             handler="handler.handler",
             code=lambda_.Code.from_asset("lambdas/waiver_tools/start_workflow"),
-            **common_lambda_kwargs,
+            **{**common_lambda_kwargs, "environment": {
+                **shared_env,
+                "SFN_ARN": self.state_machine.state_machine_arn,
+            }},
         )
 
         self.update_waiver_lambda = lambda_.Function(
