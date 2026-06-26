@@ -5,6 +5,8 @@ from aws_cdk import (
     aws_lambda as lambda_,
     aws_logs as logs,
     aws_bedrock as bedrock,
+    aws_events as events,
+    aws_events_targets as targets,
 )
 from constructs import Construct
 import json
@@ -224,9 +226,10 @@ class RagStack(cdk.Stack):
         )
         self.knowledge_base.add_dependency(oss_index)
 
-        # Data source per department
+        # Data source per department — capture IDs for the sync trigger Lambda
+        data_source_refs: dict[str, bedrock.CfnDataSource] = {}
         for dept in ["hr", "legal", "it", "general"]:
-            bedrock.CfnDataSource(
+            ds = bedrock.CfnDataSource(
                 self, f"DataSource{dept.upper()}",
                 name=f"email-agent-{dept}",
                 knowledge_base_id=self.knowledge_base.attr_knowledge_base_id,
@@ -247,6 +250,16 @@ class RagStack(cdk.Stack):
                     ),
                 ),
             )
+            data_source_refs[dept] = ds
+
+        # JSON map of dept → data_source_id resolved at deploy time via Fn.join
+        data_source_ids_json = cdk.Fn.join("", [
+            '{"hr":"',      data_source_refs["hr"].attr_data_source_id,
+            '","legal":"',  data_source_refs["legal"].attr_data_source_id,
+            '","it":"',     data_source_refs["it"].attr_data_source_id,
+            '","general":"',data_source_refs["general"].attr_data_source_id,
+            '"}',
+        ])
 
         # ------------------------------------------------------------------ #
         # RETRIEVAL LAMBDA — query_knowledge_base tool implementation
@@ -282,6 +295,60 @@ class RagStack(cdk.Stack):
                 "KNOWLEDGE_BASE_ID": self.knowledge_base.attr_knowledge_base_id,
             },
             log_retention=logs.RetentionDays.ONE_WEEK,
+        )
+
+        # ------------------------------------------------------------------ #
+        # SYNC TRIGGER LAMBDA — auto-ingests documents uploaded to S3
+        # Writes a .metadata.json sidecar (dept tag) then starts a Bedrock
+        # ingestion job so new docs are indexed into the KB automatically.
+        # ------------------------------------------------------------------ #
+
+        sync_role = iam.Role(
+            self, "SyncTriggerRole",
+            assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
+            managed_policies=[
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "service-role/AWSLambdaBasicExecutionRole"
+                )
+            ],
+            inline_policies={
+                "SyncPolicy": iam.PolicyDocument(statements=[
+                    iam.PolicyStatement(
+                        actions=["s3:PutObject"],
+                        resources=[f"{infra.documents_bucket.bucket_arn}/*"],
+                    ),
+                    iam.PolicyStatement(
+                        actions=["bedrock:StartIngestionJob"],
+                        resources=[self.knowledge_base.attr_knowledge_base_arn],
+                    ),
+                ])
+            },
+        )
+
+        sync_lambda = lambda_.Function(
+            self, "SyncTriggerLambda",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=lambda_.Code.from_asset("lambdas/sync_trigger"),
+            role=sync_role,
+            timeout=cdk.Duration.seconds(30),
+            environment={
+                "KNOWLEDGE_BASE_ID": self.knowledge_base.attr_knowledge_base_id,
+                "DATA_SOURCE_IDS": data_source_ids_json,
+                "DOCUMENTS_BUCKET": infra.documents_bucket.bucket_name,
+            },
+            log_retention=logs.RetentionDays.ONE_WEEK,
+        )
+
+        # EventBridge rule: fires on every Object Created in the documents bucket
+        events.Rule(
+            self, "DocsSyncRule",
+            event_pattern=events.EventPattern(
+                source=["aws.s3"],
+                detail_type=["Object Created"],
+                detail={"bucket": {"name": [infra.documents_bucket.bucket_name]}},
+            ),
+            targets=[targets.LambdaFunction(sync_lambda)],
         )
 
         # ------------------------------------------------------------------ #

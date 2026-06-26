@@ -37,6 +37,7 @@ class InfraStack(cdk.Stack):
             auto_delete_objects=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             encryption=s3.BucketEncryption.S3_MANAGED,
+            event_bridge_enabled=True,
         )
 
         self.waiver_criteria_bucket = s3.Bucket(
