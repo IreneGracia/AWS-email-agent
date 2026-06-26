@@ -125,8 +125,8 @@ def scenario_happy_path():
     header("SCENARIO 1 — Happy Path (all info on first email)")
     table, sfn_client, _ = setup_aws()
 
-    from waiver_flow.tools import start_waiver_workflow, get_waiver_state
-    from waiver_flow.lambdas.approval_handler import handler as approve
+    from waiver_tools.tools import start_waiver_workflow, get_waiver_state
+    from approval.handler import handler as approve
 
     wid = f"WVR-{uuid.uuid4().hex[:8].upper()}"
 
@@ -211,7 +211,7 @@ def scenario_missing_info_loop():
     header("SCENARIO 2 — Missing Info Loop (two reply cycles)")
     table, sfn_client, _ = setup_aws()
 
-    from waiver_flow.tools import start_waiver_workflow, update_waiver_state, get_waiver_state
+    from waiver_tools.tools import start_waiver_workflow, update_waiver_state, get_waiver_state
 
     wid = f"WVR-{uuid.uuid4().hex[:8].upper()}"
 
@@ -277,8 +277,8 @@ def scenario_rejection():
     header("SCENARIO 3 — Rejection Path")
     table, sfn_client, _ = setup_aws()
 
-    from waiver_flow.tools import start_waiver_workflow, get_waiver_state
-    from waiver_flow.lambdas.approval_handler import handler as approve
+    from waiver_tools.tools import start_waiver_workflow, get_waiver_state
+    from approval.handler import handler as approve
 
     wid = f"WVR-{uuid.uuid4().hex[:8].upper()}"
 
@@ -331,7 +331,7 @@ def scenario_guard_rails():
     header("SCENARIO 4 — Guard Rails (invalid inputs to approval_handler)")
     setup_aws()
 
-    from waiver_flow.lambdas.approval_handler import handler as approve
+    from approval.handler import handler as approve
 
     def call(body):
         return approve({"httpMethod": "POST", "resource": "/waiver/approve",
@@ -382,7 +382,7 @@ def scenario_thread_resume():
     header("SCENARIO 5 — Thread Resume (get_waiver_state reloads full context)")
     setup_aws()
 
-    from waiver_flow.tools import start_waiver_workflow, update_waiver_state, get_waiver_state
+    from waiver_tools.tools import start_waiver_workflow, update_waiver_state, get_waiver_state
 
     wid = f"WVR-{uuid.uuid4().hex[:8].upper()}"
 

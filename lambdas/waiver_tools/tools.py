@@ -86,7 +86,8 @@ def start_waiver_workflow(
     # ----------------------------------------------------------------
     item = {
         "waiver_id":          waiver_id,
-        "message_id":         "",           # Set by ingestion Lambda (Person 1) if available
+        # message_id is set later by the ingestion Lambda via a separate update;
+        # omitted here because DynamoDB rejects empty strings as GSI key values.
         "thread_message_ids": [],
         "email_from":         email_from,
         "department":         department,

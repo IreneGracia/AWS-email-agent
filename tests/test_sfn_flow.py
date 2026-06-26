@@ -28,8 +28,8 @@ os.environ.update({
     "AWS_SESSION_TOKEN":     "testing",
 })
 
-from waiver_flow.lambdas.store_task_token import handler as store_token_handler
-from waiver_flow.lambdas.notify_requestor  import handler as notify_handler
+from waiver_tools.store_task_token import handler as store_token_handler
+from waiver_tools.notify_requestor import handler as notify_handler
 
 
 @pytest.fixture

@@ -35,8 +35,8 @@ os.environ.update({
     "AWS_SESSION_TOKEN":     "testing",
 })
 
-from waiver_flow.tools import start_waiver_workflow, update_waiver_state, get_waiver_state
-from waiver_flow.lambdas.approval_handler import handler as approval_handler
+from waiver_tools.tools import start_waiver_workflow, update_waiver_state, get_waiver_state
+from approval.handler import handler as approval_handler
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
