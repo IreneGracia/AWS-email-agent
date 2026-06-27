@@ -14,6 +14,8 @@ cdk.out/
 # Node / frontend
 node_modules/
 frontend/build/
+frontend/dist/
+frontend/.env.production
 
 # Lambda layers (installed Python deps — rebuild with pip install)
 layers/strands/python/

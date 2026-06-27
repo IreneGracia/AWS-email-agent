@@ -5,6 +5,7 @@ from aws_cdk import (
     aws_lambda as lambda_,
     aws_iam as iam,
     aws_s3 as s3,
+    aws_s3_deployment as s3deploy,
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as origins,
     aws_logs as logs,
@@ -189,6 +190,21 @@ class FrontendStack(cdk.Stack):
                 ),
             ],
             default_root_object="index.html",
+        )
+
+        # ------------------------------------------------------------------ #
+        # DEPLOY THE BUILT REACT APP
+        # Build the SPA first (scripts/build_frontend.sh bakes the API URL +
+        # Cognito IDs into the bundle) so frontend/dist exists at synth time,
+        # then upload it and invalidate the CloudFront cache.
+        # ------------------------------------------------------------------ #
+
+        s3deploy.BucketDeployment(
+            self, "SpaDeployment",
+            sources=[s3deploy.Source.asset("frontend/dist")],
+            destination_bucket=spa_bucket,
+            distribution=distribution,
+            distribution_paths=["/*"],
         )
 
         # ------------------------------------------------------------------ #
