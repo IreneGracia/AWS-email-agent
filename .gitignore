@@ -35,3 +35,4 @@ Thumbs.db
 .bedrock_agentcore.yaml
 Dockerfile
 .dockerignore
+.bedrock_agentcore/
