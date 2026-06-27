@@ -37,6 +37,11 @@ s3 = boto3.client("s3")
 dynamodb = boto3.resource("dynamodb")
 _lambda_client = boto3.client("lambda")
 _ssm = boto3.client("ssm")
+_agentcore_client = boto3.client("bedrock-agentcore")
+
+# When set, the router agent runs on Amazon Bedrock AgentCore (preferred);
+# otherwise we fall back to invoking the router agent Lambda.
+ROUTER_RUNTIME_ARN = os.environ.get("ROUTER_AGENT_RUNTIME_ARN", "")
 
 RAW_EMAILS_BUCKET = os.environ.get("RAW_EMAILS_BUCKET", "")
 WAIVER_TABLE_NAME = os.environ.get("WAIVER_TABLE_NAME", "waivers")
@@ -215,7 +220,33 @@ def _lookup_thread_id(in_reply_to):
 # --------------------------------------------------------------------------- #
 # 4. Invoke the router agent Lambda (Strands agent)
 # --------------------------------------------------------------------------- #
+def _invoke_router_runtime(payload):
+    """Invoke the router agent deployed on Amazon Bedrock AgentCore Runtime."""
+    seed = payload.get("thread_id") or payload.get("message_id") or uuid.uuid4().hex
+    session_id = (re.sub(r"[^A-Za-z0-9]", "", seed) + uuid.uuid4().hex)[:64]
+    if len(session_id) < 33:
+        session_id = (session_id + uuid.uuid4().hex)[:64]
+    resp = _agentcore_client.invoke_agent_runtime(
+        agentRuntimeArn=ROUTER_RUNTIME_ARN,
+        runtimeSessionId=session_id,
+        payload=json.dumps(payload).encode("utf-8"),
+        contentType="application/json",
+        accept="application/json",
+    )
+    raw = resp["response"].read()
+    try:
+        data = json.loads(raw)
+        return data.get("result") or json.dumps(data)
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return raw.decode("utf-8", "ignore") if isinstance(raw, bytes) else str(raw)
+
+
 def _invoke_agent(payload):
+    # Preferred path: the router agent runs on Amazon Bedrock AgentCore.
+    if ROUTER_RUNTIME_ARN:
+        return _invoke_router_runtime(payload)
+
+    # Fallback: invoke the router agent Lambda.
     arn = _resolve_router_lambda_arn()
     if not arn:
         print("[ingestion] router Lambda ARN not available — skipping agent invoke.")

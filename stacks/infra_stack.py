@@ -117,6 +117,15 @@ class InfraStack(cdk.Stack):
             ],
         ))
 
+        # Preferred path: the router agent runs on Amazon Bedrock AgentCore.
+        router_runtime_arn = self.node.try_get_context("router_agent_runtime_arn") or ""
+        ingestion_role.add_to_policy(iam.PolicyStatement(
+            actions=["bedrock-agentcore:InvokeAgentRuntime"],
+            resources=[
+                f"arn:aws:bedrock-agentcore:{self.region}:{self.account}:runtime/*",
+            ],
+        ))
+
         self.ingestion_lambda = lambda_.Function(
             self, "IngestionLambda",
             runtime=lambda_.Runtime.PYTHON_3_12,
@@ -130,7 +139,9 @@ class InfraStack(cdk.Stack):
                 "RAW_EMAILS_BUCKET": self.raw_emails_bucket.bucket_name,
                 "WAIVER_TABLE_NAME": waiver_table_name,
                 "WAIVER_MESSAGE_ID_INDEX": waiver_message_id_index,
-                # Router Lambda ARN resolved at runtime from SSM (published by AgentStack).
+                # Router runs on AgentCore when this is set; else falls back to the
+                # router Lambda ARN resolved at runtime from SSM (published by AgentStack).
+                "ROUTER_AGENT_RUNTIME_ARN": router_runtime_arn,
                 "ROUTER_LAMBDA_ARN_PARAM": "/email-agent/router/lambda-arn",
             },
             log_retention=logs.RetentionDays.ONE_WEEK,

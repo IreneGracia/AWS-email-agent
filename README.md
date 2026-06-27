@@ -16,7 +16,7 @@ The system reduces manual email triage and accelerates response times for the mo
 
 ## Agentic Application
 
-The core of the system is a multi-agent application built with **Strands Agents**. The **Waiver Processor agent is deployed on Amazon Bedrock AgentCore Runtime** (direct code deploy); the **Email Router agent** runs on **AWS Lambda** (Strands layer) and delegates to the waiver agent by invoking its AgentCore runtime. Both invoke Amazon Bedrock models (Nova Pro) under a shared Bedrock Guardrail.
+The core of the system is a multi-agent application built with **Strands Agents**. **Both agents — the Email Router and the Waiver Processor — are deployed on Amazon Bedrock AgentCore Runtime** (direct code deploy). The ingestion Lambda invokes the router runtime; the router delegates to the waiver runtime via `InvokeAgentRuntime`. Both invoke Amazon Bedrock models (Nova Pro) under a shared Bedrock Guardrail.
 
 ### Agent 1 — Email Router
 Receives each parsed incoming email and is responsible for:
@@ -47,9 +47,8 @@ Both agents are configured with the same **Bedrock Guardrail** for PII filtering
 |---|---|---|
 | Ingestion | Amazon SES | Receives incoming emails |
 | Ingestion | Amazon S3 | Stores raw emails and internal documents |
-| Ingestion | AWS Lambda | Parses emails, detects reply threads, invokes the router agent Lambda |
-| Agents | Amazon Bedrock AgentCore | Hosts and runs the Waiver Processor Strands agent (runtime, direct code deploy) |
-| Agents | AWS Lambda (Strands Agents) | Hosts the Email Router Strands agent (Bedrock models via a Lambda layer) |
+| Ingestion | AWS Lambda | Parses emails, detects reply threads, invokes the router AgentCore runtime |
+| Agents | Amazon Bedrock AgentCore | Hosts and runs both Strands agents (Router + Waiver) as runtimes (direct code deploy) |
 | Agents | Amazon Bedrock Guardrails | PII filtering and topic enforcement |
 | Knowledge | Amazon Bedrock Knowledge Bases | RAG retrieval over IE's internal policy documents |
 | Knowledge | Amazon OpenSearch Serverless | Vector index for semantic search |
@@ -85,7 +84,7 @@ The entire infrastructure is defined using **AWS CDK (Python)** organized in fiv
 - InfraStack — SES, S3 buckets, ingestion Lambda
 - RagStack — Bedrock Knowledge Base, OpenSearch Serverless, retrieval Lambda
 - WaiverStack — DynamoDB, Step Functions, waiver tool Lambdas, approval Lambda
-- AgentStack — Router Strands agent on Lambda; Waiver Strands agent on Bedrock AgentCore (deployed via scripts/deploy_agentcore.sh); Bedrock Guardrail
+- AgentStack — both Strands agents (Router + Waiver) on Bedrock AgentCore (deployed via scripts/deploy_agentcore.sh); Bedrock Guardrail. Router/waiver Lambdas remain as fallbacks.
 - FrontendStack — Cognito, API Gateway, S3 + CloudFront
 
 All stacks are account-agnostic and parameterized via CDK context variables.
