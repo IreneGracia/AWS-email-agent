@@ -61,7 +61,7 @@ def _resolve_router_runtime_arn() -> str:
 
 RAW_EMAILS_BUCKET = os.environ.get("RAW_EMAILS_BUCKET", "")
 WAIVER_TABLE_NAME = os.environ.get("WAIVER_TABLE_NAME", "waivers")
-WAIVER_MESSAGE_ID_INDEX = os.environ.get("WAIVER_MESSAGE_ID_INDEX", "message_id_index")
+WAIVER_MESSAGE_ID_INDEX = os.environ.get("WAIVER_MESSAGE_ID_INDEX", "MessageIdIndex")
 
 ROUTER_LAMBDA_ARN_PARAM = os.environ.get("ROUTER_LAMBDA_ARN_PARAM", "/email-agent/router/lambda-arn")
 
@@ -214,15 +214,23 @@ def _parse_email(raw_bytes):
 # --------------------------------------------------------------------------- #
 # 3. Thread detection — resolve thread_id (waiver_id) from DynamoDB
 # --------------------------------------------------------------------------- #
+def _norm_mid(mid):
+    """Normalize a Message-ID for matching — strip whitespace and < > so the
+    raw header form (<id@host>) matches the value stored on the record (the LLM
+    agent tends to drop the angle brackets when it passes message_id to a tool)."""
+    return (mid or "").strip().strip("<>").strip()
+
+
 def _lookup_thread_id(in_reply_to):
     """Query the message_id GSI; return the waiver_id of the matching thread."""
-    if not in_reply_to:
+    key = _norm_mid(in_reply_to)
+    if not key:
         return None
     try:
         table = dynamodb.Table(WAIVER_TABLE_NAME)
         resp = table.query(
             IndexName=WAIVER_MESSAGE_ID_INDEX,
-            KeyConditionExpression=boto3.dynamodb.conditions.Key("message_id").eq(in_reply_to),
+            KeyConditionExpression=boto3.dynamodb.conditions.Key("message_id").eq(key),
             Limit=1,
         )
         items = resp.get("Items", [])
@@ -231,6 +239,34 @@ def _lookup_thread_id(in_reply_to):
     except Exception as exc:  # table may not exist yet during early integration
         print(f"[ingestion] thread lookup failed (continuing as new thread): {exc}")
     return None
+
+
+def _register_message_in_thread(waiver_id, message_id):
+    """Attach a reply's message_id to its thread so the next reply resolves too.
+
+    The message_id GSI is keyed on a single scalar, so we point it at the latest
+    inbound message and keep the full chain in thread_message_ids for audit.
+    """
+    message_id = _norm_mid(message_id)
+    if not (waiver_id and message_id):
+        return
+    try:
+        dynamodb.Table(WAIVER_TABLE_NAME).update_item(
+            Key={"waiver_id": waiver_id},
+            UpdateExpression=(
+                "SET message_id = :m, updated_at = :ts, "
+                "thread_message_ids = list_append(if_not_exists(thread_message_ids, :empty), :one)"
+            ),
+            ExpressionAttributeValues={
+                ":m": message_id,
+                ":one": [message_id],
+                ":empty": [],
+                ":ts": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        print(f"[ingestion] registered reply {message_id} on thread {waiver_id}")
+    except Exception as exc:
+        print(f"[ingestion] could not register reply on thread {waiver_id}: {exc}")
 
 
 # --------------------------------------------------------------------------- #
@@ -288,6 +324,10 @@ def handler(event, context):
     parsed = _parse_email(raw_bytes)
 
     thread_id = _lookup_thread_id(parsed["in_reply_to"])
+    if thread_id:
+        # Reply to an existing waiver — record this message on the thread so the
+        # next reply in the chain also resolves to the same thread_id.
+        _register_message_in_thread(thread_id, parsed["message_id"])
 
     payload = {
         "message_id": parsed["message_id"],

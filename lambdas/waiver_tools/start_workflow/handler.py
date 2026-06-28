@@ -26,6 +26,10 @@ def handler(event, context):
     collected_info = event.get("collected_info", {})
     missing_fields = event.get("missing_fields", [])
     attachments    = event.get("attachments", []) or []
+    # Normalize (strip whitespace + < >) so the stored GSI key matches the raw
+    # In-Reply-To header the ingestion Lambda looks up (the agent often drops
+    # the angle brackets when passing message_id through).
+    message_id     = (event.get("message_id") or "").strip().strip("<>").strip()
 
     table   = dynamodb.Table(os.environ["WAIVER_TABLE"])
     sfn_arn = os.environ["SFN_ARN"]
@@ -33,7 +37,10 @@ def handler(event, context):
 
     item = {
         "waiver_id":          waiver_id,
-        "thread_message_ids": [],
+        # Indexed by the message_id GSI so the ingestion Lambda can resolve a
+        # reply's In-Reply-To header back to this waiver (thread_id). Only set
+        # when non-empty — DynamoDB rejects empty strings as GSI key values.
+        "thread_message_ids": [message_id] if message_id else [],
         "email_from":         email_from,
         "department":         department,
         "waiver_type":        waiver_type,
@@ -51,6 +58,9 @@ def handler(event, context):
         "created_at": now,
         "updated_at": now,
     }
+
+    if message_id:
+        item["message_id"] = message_id
 
     try:
         table.put_item(Item=item, ConditionExpression="attribute_not_exists(waiver_id)")

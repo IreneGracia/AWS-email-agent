@@ -92,10 +92,12 @@ class InfraStack(cdk.Stack):
         # (see stacks/waiver_stack.py); referenced by name to avoid a circular
         # stack dependency (WaiverStack already depends on InfraStack).
         waiver_table_name = self.node.try_get_context("waiver_table_name") or "waivers"
-        waiver_message_id_index = "message_id_index"
+        waiver_message_id_index = "MessageIdIndex"  # must match WaiverStack's GSI name
         waiver_table_arn = f"arn:aws:dynamodb:{self.region}:{self.account}:table/{waiver_table_name}"
         ingestion_role.add_to_policy(iam.PolicyStatement(
-            actions=["dynamodb:Query", "dynamodb:GetItem"],
+            # Query (Message-ID GSI) + GetItem to resolve a reply's thread_id,
+            # UpdateItem to register the reply's message_id back onto the thread.
+            actions=["dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem"],
             resources=[waiver_table_arn, f"{waiver_table_arn}/index/*"],
         ))
 
